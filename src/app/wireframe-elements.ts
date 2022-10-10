@@ -1,0 +1,48 @@
+import {
+    IFCBEAM,
+    IFCBUILDINGELEMENTPART,
+    IFCREINFORCINGELEMENT,
+    IFCCOLUMN,
+    IFCCOVERING,
+    IFCCURTAINWALL,
+    IFCDOOR,
+    IFCFOOTING,
+    IFCPILE,
+    IFCPLATE,
+    IFCRAILING,
+    IFCRAMP,
+    IFCRAMPFLIGHT,
+    IFCROOF,
+    IFCSLAB,
+    IFCSTAIR,
+    IFCSTAIRFLIGHT,
+    IFCWALL,
+    IFCWINDOW,
+  } from 'web-ifc';
+  
+  function getWireFrameElementTypes() {
+    return [
+      IFCBEAM,
+      IFCBUILDINGELEMENTPART,
+      IFCREINFORCINGELEMENT,
+      IFCCOLUMN,
+      IFCCOVERING,
+      IFCCURTAINWALL,
+      IFCDOOR,
+      IFCFOOTING,
+      IFCPILE,
+      IFCPLATE,
+      IFCRAILING,
+      IFCRAMP,
+      IFCRAMPFLIGHT,
+      IFCROOF,
+      IFCSLAB,
+      IFCSTAIR,
+      IFCSTAIRFLIGHT,
+      IFCWALL,
+      IFCWINDOW,
+    ];
+  }
+  
+  export { getWireFrameElementTypes };
+  

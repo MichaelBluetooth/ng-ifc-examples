@@ -18,9 +18,15 @@
     "@angular/platform-browser": "~13.0.0",
     "@angular/platform-browser-dynamic": "~13.0.0",
     "@angular/router": "~13.0.0",
+    "@types/three": "^0.140.0",
     "rxjs": "~7.4.0",
     "tslib": "^2.3.0",
-    "zone.js": "~0.11.4"
+    "zone.js": "~0.11.4",
+    "web-ifc": "0.0.34",
+    "web-ifc-three": "0.0.112",
+    "web-ifc-viewer": "^1.0.172",
+    "three": "^0.139.2",
+    "three-mesh-bvh": "^0.5.10"
   },
   "devDependencies": {
     "@angular-devkit/build-angular": "~13.0.1",
