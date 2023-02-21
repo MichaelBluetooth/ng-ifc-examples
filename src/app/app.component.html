@@ -3,3 +3,19 @@
   <input #uploadField type="file" id="upload-field" (change)="loadIfcFile($event)">
   <button id="toggleBtn" (click)="toggleTransparency()">Toggle Transparency</button>
 </div>
+
+<div class="floating r-20 t-20">
+  <div>
+    DISTANCE TO TARGET: {{dist$|async}}
+  </div>
+  <div>
+    ZOOM SPEED: <input [(ngModel)]="zoomSpeed" (ngModelChange)="setZoomSpeed()">
+  </div>
+  <div *ngIf="(cameraPosition$|async) as cameraPosition">
+    CAMERA POSITION: {{cameraPosition.x}},{{cameraPosition.y}},{{cameraPosition.z}}
+  </div>
+</div>
+
+<div class="floating r-20 t-150">
+  <app-planes-controller></app-planes-controller>
+</div>

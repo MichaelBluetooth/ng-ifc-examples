@@ -1,6 +1,10 @@
+import { HttpClient } from '@angular/common/http';
 import { ElementRef, Injectable } from '@angular/core';
+import { BehaviorSubject } from 'rxjs';
+import * as THREE from 'three';
 import {
   AmbientLight,
+  AxesHelper,
   Camera,
   DirectionalLight,
   EdgesGeometry,
@@ -10,39 +14,63 @@ import {
   Material,
   Mesh,
   MeshPhongMaterial,
+  OrthographicCamera,
   PerspectiveCamera,
   Scene,
+  Vector3,
   WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { IFCLoader } from 'web-ifc-three';
+import { IfcPlane } from './planes-controller/ifc-plane';
 import { getWireFrameElementTypes } from './wireframe-elements';
+
+const newAxesPosition = new Vector3();
 
 @Injectable({
   providedIn: 'root',
 })
 export class IfcService {
-  private scene: Scene;
-  private camera: Camera;
-  private controls: OrbitControls;
+  public scene: Scene;
+  public camera: PerspectiveCamera;
+  public controls: OrbitControls;
   private animateFn: FrameRequestCallback;
   private renderer: WebGLRenderer;
   private ifcLoader: IFCLoader;
 
+  public models: any[] = [];
   private subsets: any[] = [];
   private isTransparent: boolean = false;
+
+  private cameraPosition = new BehaviorSubject<Vector3>(new Vector3(0, 0, 0));
+  cameraPosition$ = this.cameraPosition.asObservable();
+  private dist = new BehaviorSubject<number>(null);
+  dist$ = this.dist.asObservable();
+
+  constructor(private http: HttpClient){}
 
   initScene(container: ElementRef) {
     this.scene = new Scene();
     const grid = new GridHelper(50, 30);
     this.scene.add(grid);
 
+    // const aspectRatio =
+    //   container.nativeElement.width / container.nativeElement.height;
+    // this.camera = new OrthographicCamera(
+    //   (-aspectRatio * 10) / 2,
+    //   (aspectRatio * 10) / 2,
+    //   10 / 2,
+    //   -10 / 2,
+    //   -1000,
+    //   1000
+    // );
+
     this.camera = new PerspectiveCamera(75, 1);
     this.camera.position.z = 15;
     this.camera.position.y = 13;
     this.camera.position.x = 8;
     this.controls = new OrbitControls(this.camera, container.nativeElement);
-    this.controls.enableDamping = true;
+    this.controls.enableDamping = false;
     this.controls.target.set(-2, 0, 0);
 
     const lightColor = 0xffffff;
@@ -63,6 +91,7 @@ export class IfcService {
       antialias: true,
       preserveDrawingBuffer: true,
     });
+    this.renderer.localClippingEnabled = true;
 
     const rect = container.nativeElement.getBoundingClientRect();
     this.renderer.setSize(rect.width, rect.height - 18); //leave some padding on the bottom so we don't show an annoying scroll bar
@@ -73,6 +102,39 @@ export class IfcService {
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(this.animateFn);
     };
+
+    
+    // const geometry = new THREE.BoxGeometry(1, 1, 1);
+    // const materials = [
+    //   new THREE.MeshPhongMaterial({ color: 'blue' }),
+    //   new THREE.MeshPhongMaterial({ color: 'red' }),
+    //   new THREE.MeshPhongMaterial({ color: 'green' }),
+    //   new THREE.MeshPhongMaterial({ color: 'yellow' }),
+    //   new THREE.MeshPhongMaterial({ color: 'orange' }),
+    //   new THREE.MeshPhongMaterial({ color: 'black' }),
+    // ];
+
+    // const cube = new THREE.Mesh(geometry, materials);
+    // this.camera.add(cube);
+    // cube.position.set(0, 0, 0);
+    // cube.position.set(-9, 0, -0.1);
+    // cube.quaternion.copy(this.camera.quaternion);
+    // cube.rotation.copy(this.camera.rotation);
+    // this.scene.add(this.camera);
+
+    // this.controls.addEventListener('change', () => {
+    //   this.cameraPosition.next(this.camera.position);
+    //   cube.quaternion.copy(this.camera.quaternion);
+    //   cube.quaternion.copy(cube.quaternion.invert());
+    //   cube.rotation.copy(this.camera.rotation);
+
+    //   this.dist.next(this.camera.position.distanceTo(cube.position));
+      
+    //   // this.camera.getWorldDirection(newAxesPosition);
+    //   // newAxesPosition.multiplyScalar(.5);
+    //   // newAxesPosition.add(this.camera.position);
+    //   // cube.position.copy(newAxesPosition);
+    // });
   }
 
   animate() {
@@ -88,29 +150,33 @@ export class IfcService {
     this.ifcLoader.ifcManager.setWasmPath('assets/');
   }
 
+  loadAsset(url: string){
+    this.http.get(url, {responseType: 'blob'}).subscribe(blob => {
+      const ifcUrl = window.URL.createObjectURL(blob);
+      this.loadIfcFile(ifcUrl);
+    });
+  }
+
   async loadIfcFile(fileUrl: any) {
     this.ifcLoader.load(fileUrl, async (ifcModel: any) => {
       //This will will make everything transparent, but no subsets
-      /*(ifcModel.material as Material[]).forEach(m => {
-        m.opacity = .5;
-        m.transparent = true;
-      });
-      this.scene.add(ifcModel);*/
-
+      // (ifcModel.material as Material[]).forEach(m => {
+      //   m.opacity = .5;
+      //   m.transparent = true;
+      // });
+      this.models.push(ifcModel);
+      // this.scene.add(ifcModel);
 
       //get all ids in the model
       const allIds = this.getIdsFromSubset(ifcModel);
+      this.createSubset(0, allIds, 'everything_else', false);
 
       //get only the ids of things within a constrained set (wall, beam, etc)
       //create a subset with edge lines
       const wireframeIds = await this.getWireframeElements(0);
       this.createSubset(0, wireframeIds, 'wireframe_elements', true);
-      
-      //for any remaining elements, create another subset without edge lines
-      const allNonWireframeIds = allIds.filter(id => {
-        return !wireframeIds.includes(id);
-      });
-      this.createSubset(0, allNonWireframeIds, 'everything_else', false);
+
+      this.centerOnSubset('everything_else');
     });
   }
 
@@ -131,6 +197,8 @@ export class IfcService {
       polygonOffset: true,
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
+      opacity: 0,
+      transparent: true,
     });
     var mesh = new Mesh(geometry, material);
 
@@ -143,7 +211,7 @@ export class IfcService {
     return mesh;
   }
 
-  async getWireframeElements(modelId: number){
+  async getWireframeElements(modelId: number) {
     const promises = [];
     getWireFrameElementTypes().forEach((ifcTypeId: number) => {
       promises.push(
@@ -165,7 +233,7 @@ export class IfcService {
     wireframe: boolean = false
   ) {
     //if these ids are part of another subset, remove them
-    this.removeIdsFromSubset(modelID, expressIds);
+    // this.removeIdsFromSubset(modelID, expressIds);
 
     const subset = this.ifcLoader.ifcManager.createSubset({
       modelID: modelID,
@@ -178,7 +246,8 @@ export class IfcService {
     let lines: any = null;
     if (wireframe) {
       lines = this.createLines(subset.geometry);
-      this.scene.add(lines);
+      subset.add(lines);
+      // this.scene.add(lines);
     }
 
     this.subsets.push({
@@ -188,16 +257,44 @@ export class IfcService {
   }
 
   removeIdsFromSubset(modelID: number, expressIds: number[]) {
-    this.subsets.forEach(s => {
-        this.ifcLoader.ifcManager.removeFromSubset(modelID, expressIds, s.subsetId);
+    this.subsets.forEach((s) => {
+      this.ifcLoader.ifcManager.removeFromSubset(
+        modelID,
+        expressIds,
+        s.subsetId
+      );
     });
   }
 
   toggleTransparency() {
     this.isTransparent = !this.isTransparent;
 
+    // this.models.forEach(model => {
+    //   model.material.forEach(material => {
+    //     material.opacity = .5;
+    //     material.transparent = true;
+    //   });
+    // });
+
+    for (let item in this.ifcLoader.ifcManager.subsets.items) {
+      console.log(item);
+    }
+
     this.subsets.forEach((s) => {
+      if (s.lines) {
+        // this.scene.remove(s.lines);
+      }
       const subset = this.ifcLoader.ifcManager.getSubset(0, null, s.subsetId);
+      if (s.lines) {
+        if (this.isTransparent) {
+          s.lines.transparent = true;
+          s.lines.opacity = 0.5;
+        } else {
+          s.lines.transparent = false;
+          s.lines.opacity = 1;
+        }
+      }
+
       (subset.material as Material[]).forEach((m) => {
         if (this.isTransparent) {
           m.opacity = 0.5;
@@ -207,6 +304,103 @@ export class IfcService {
           m.transparent = false;
         }
       });
+    });
+  }
+
+  centerOnSubset(subsetName: string, material?: Material) {
+    const selectedElementsSubset = this.ifcLoader.ifcManager.getSubset(
+      0,
+      material,
+      subsetName
+    );
+
+    if (selectedElementsSubset) {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (let i in selectedElementsSubset.geometry.index.array) {
+        const position = selectedElementsSubset.geometry.index.array[i];
+
+        const x =
+          selectedElementsSubset.geometry.attributes['position'].getX(position);
+        const y =
+          selectedElementsSubset.geometry.attributes['position'].getY(position);
+        const z =
+          selectedElementsSubset.geometry.attributes['position'].getZ(position);
+
+        if (x > maxX) {
+          maxX = x;
+        }
+        if (x < minX) {
+          minX = x;
+        }
+
+        if (y > maxY) {
+          maxY = y;
+        }
+        if (y < minY) {
+          minY = y;
+        }
+
+        if (z > maxZ) {
+          maxZ = z;
+        }
+        if (z < minZ) {
+          minZ = z;
+        }
+      }
+
+      let middle = new THREE.Vector3();
+      let geometry = selectedElementsSubset.geometry;
+      geometry.computeBoundingBox();
+      middle.x = (maxX + minX) / 2;
+      middle.y = (maxY + minY) / 2;
+      middle.z = (maxZ + minZ) / 2;
+      selectedElementsSubset.localToWorld(middle);
+
+      this.controls.target.set(middle.x, middle.y, middle.z);
+      this.camera.lookAt(middle.x, middle.y, middle.z);
+    }
+  }
+
+  addPlane(constant: number, invert: boolean){
+    //TODO: is this on the X, Y or Z plane?
+    const localPlane = new THREE.Plane(new THREE.Vector3(invert ? -1 : 1, 0, 0), constant);
+    const helper = new THREE.PlaneHelper( localPlane, 35, 0xFF0000 ); //todo: how can we make the helper size relative to the model so it's not so massive?
+    this.scene.add(helper);
+    this.models[0].material.forEach((m: Material) => {
+      if(!m.clippingPlanes){
+        m.clippingPlanes = [localPlane];
+      } else {
+        m.clippingPlanes.push(localPlane);
+      }
+    });
+  }
+
+  adjustPlane(planeIdx: number, newConstant: number){
+    this.models[0].material.forEach((m: Material) => {
+      m.clippingPlanes[planeIdx].constant = newConstant;
+    });
+  }
+
+  flipPlane(planeIdx: number, invert: boolean){
+    //todo: need to know if we're inverting X, Y or Z
+    let done = false;
+    this.models[0].material.forEach((m: Material) => {
+      if(!done){
+        const v: Vector3 = m.clippingPlanes[planeIdx].normal;
+        let newX = v.x;
+        if(invert){
+          newX = v.x * -1;
+        } else {
+          newX = Math.abs(v.x);
+        }
+        m.clippingPlanes[planeIdx].normal.setX(newX);
+        done = true;
+      }
     });
   }
 }

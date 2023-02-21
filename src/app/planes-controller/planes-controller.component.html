@@ -1,0 +1,21 @@
+<div class="wrapper">
+  <div class="stacked">
+    <button (click)="addPlane()">Add Plane X</button>
+    <button (click)="addPlane()">Add Plane Y</button>
+    <button (click)="addPlane()">Add Plane Z</button>
+  </div>
+
+  <div class="grow">
+    <select style="width: 100%" [(ngModel)]="selectedPlane">
+      <option *ngFor="let plane of planes" [ngValue]="plane">{{plane.name}}</option>
+    </select>
+    <div *ngIf="selectedPlane" class="control-div">
+      offset:
+      <input type="range" min="-50" max="50" step=".01" [(ngModel)]="selectedPlane.constant" (ngModelChange)="planeConstantChanged()">
+      <input type="number" class="const-input"  [(ngModel)]="selectedPlane.constant" (ngModelChange)="planeConstantChanged()"/>
+    </div>
+    <div *ngIf="selectedPlane">
+      Invert: <input type="checkbox" step="0.01" [(ngModel)]="selectedPlane.invert" (ngModelChange)="planeInvertChange()" />
+    </div>
+  </div>
+</div>
