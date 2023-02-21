@@ -22,10 +22,18 @@ import {
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { IFCLoader } from 'web-ifc-three';
-import { IfcPlane } from './planes-controller/ifc-plane';
 import { getWireFrameElementTypes } from './wireframe-elements';
 
-const newAxesPosition = new Vector3();
+let LINES_MATERIAL = new MeshPhongMaterial({
+  color: 0xff0000,
+  polygonOffset: true,
+  polygonOffsetFactor: 1,
+  polygonOffsetUnits: 1,
+  opacity: 0,
+  transparent: true
+});
+
+let LINES_MATERIAL2 = new LineBasicMaterial({ color: 'black' })
 
 @Injectable({
   providedIn: 'root',
@@ -192,20 +200,12 @@ export class IfcService {
   }
 
   createLines(geometry: any) {
-    let material = new MeshPhongMaterial({
-      color: 0xff0000,
-      polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 1,
-      opacity: 0,
-      transparent: true,
-    });
-    var mesh = new Mesh(geometry, material);
+    var mesh = new Mesh(geometry, LINES_MATERIAL);
 
     const edges = new EdgesGeometry(geometry);
     const line = new LineSegments(
       edges,
-      new LineBasicMaterial({ color: 'black' })
+      LINES_MATERIAL2
     );
     mesh.add(line);
     return mesh;
@@ -307,29 +307,22 @@ export class IfcService {
     });
   }
 
-  centerOnSubset(subsetName: string, material?: Material) {
-    const selectedElementsSubset = this.ifcLoader.ifcManager.getSubset(
-      0,
-      material,
-      subsetName
-    );
-
-    if (selectedElementsSubset) {
+  getCenter(subset: any): Vector3 {
       let minX = Infinity;
       let maxX = -Infinity;
       let minY = Infinity;
       let maxY = -Infinity;
       let minZ = Infinity;
       let maxZ = -Infinity;
-      for (let i in selectedElementsSubset.geometry.index.array) {
-        const position = selectedElementsSubset.geometry.index.array[i];
+      for (let i in subset.geometry.index.array) {
+        const position = subset.geometry.index.array[i];
 
         const x =
-          selectedElementsSubset.geometry.attributes['position'].getX(position);
+        subset.geometry.attributes['position'].getX(position);
         const y =
-          selectedElementsSubset.geometry.attributes['position'].getY(position);
+        subset.geometry.attributes['position'].getY(position);
         const z =
-          selectedElementsSubset.geometry.attributes['position'].getZ(position);
+        subset.geometry.attributes['position'].getZ(position);
 
         if (x > maxX) {
           maxX = x;
@@ -354,23 +347,49 @@ export class IfcService {
       }
 
       let middle = new THREE.Vector3();
-      let geometry = selectedElementsSubset.geometry;
+      let geometry = subset.geometry;
       geometry.computeBoundingBox();
       middle.x = (maxX + minX) / 2;
       middle.y = (maxY + minY) / 2;
       middle.z = (maxZ + minZ) / 2;
-      selectedElementsSubset.localToWorld(middle);
+      subset.localToWorld(middle);
 
+      return middle;
+  }
+
+  centerOnSubset(subsetName: string, material?: Material) {
+    const selectedElementsSubset = this.ifcLoader.ifcManager.getSubset(
+      0,
+      material,
+      subsetName
+    );
+
+    if (selectedElementsSubset) {
+      let middle = this.getCenter(selectedElementsSubset);      
       this.controls.target.set(middle.x, middle.y, middle.z);
       this.camera.lookAt(middle.x, middle.y, middle.z);
     }
   }
 
-  addPlane(constant: number, invert: boolean){
+  getMaxDimension(){
+    var cube_bbox = new THREE.Box3();
+    cube_bbox.setFromObject( this.models[0] );
+    const cube_height = cube_bbox.max.y - cube_bbox.min.y;
+    return cube_height;
+  }
+
+  addPlane(invert: boolean) {
+    const center = this.getCenter(this.models[0]);
+    const size = this.getMaxDimension();
+
+    const ret = invert ? center.x : -1 * center.x;
+    
     //TODO: is this on the X, Y or Z plane?
-    const localPlane = new THREE.Plane(new THREE.Vector3(invert ? -1 : 1, 0, 0), constant);
-    const helper = new THREE.PlaneHelper( localPlane, 35, 0xFF0000 ); //todo: how can we make the helper size relative to the model so it's not so massive?
+    const posX = invert ? -1 : 1;
+    const localPlane = new THREE.Plane(new THREE.Vector3(posX, 0, 0), -center.x);
+    const helper = new THREE.PlaneHelper( localPlane, 25, 0xFF0000 );  //todo: how to get size of model and center the plane on the model?
     this.scene.add(helper);
+
     this.models[0].material.forEach((m: Material) => {
       if(!m.clippingPlanes){
         m.clippingPlanes = [localPlane];
@@ -378,6 +397,15 @@ export class IfcService {
         m.clippingPlanes.push(localPlane);
       }
     });
+    
+    if(LINES_MATERIAL2.clippingPlanes) {
+      LINES_MATERIAL2.clippingPlanes.push(localPlane);
+    } else {
+      LINES_MATERIAL2.clippingPlanes = [localPlane];
+    }
+
+    //todo: X, Y or Z?
+    return -center.x;
   }
 
   adjustPlane(planeIdx: number, newConstant: number){

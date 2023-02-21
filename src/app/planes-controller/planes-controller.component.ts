@@ -21,12 +21,13 @@ export class PlanesControllerComponent implements OnInit {
   addPlane() {
     this.planes.push({
       name: `Plane ${this.planes.length + 1}`,
-      constant: 5,
+      constant: null,
       invert: false
     });
     this.selectedPlane = this.planes[this.planes.length - 1];
-
-    this.ifc.addPlane(this.selectedPlane.constant, this.selectedPlane.invert);
+    
+    const constant = this.ifc.addPlane(this.selectedPlane.invert);
+    this.selectedPlane.constant = constant;
 
     // this.initThreeJSPlanes();
   }
