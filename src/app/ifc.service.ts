@@ -378,17 +378,17 @@ export class IfcService {
     return cube_height;
   }
 
+  planeHelpers = [];
   addPlane(invert: boolean) {
     const center = this.getCenter(this.models[0]);
     const size = this.getMaxDimension();
 
-    const ret = invert ? center.x : -1 * center.x;
-    
     //TODO: is this on the X, Y or Z plane?
     const posX = invert ? -1 : 1;
-    const localPlane = new THREE.Plane(new THREE.Vector3(posX, 0, 0), -center.x);
-    const helper = new THREE.PlaneHelper( localPlane, 25, 0xFF0000 );  //todo: how to get size of model and center the plane on the model?
+    const localPlane = new THREE.Plane(new THREE.Vector3(posX, 0, 0), -center.x); //todo: why -center.x to get center x position?
+    const helper = new THREE.PlaneHelper( localPlane, size * 2, 0xFF0000 );  //todo: how to get size of model and center the plane on the model?
     this.scene.add(helper);
+    this.planeHelpers.push(helper);
 
     this.models[0].material.forEach((m: Material) => {
       if(!m.clippingPlanes){
@@ -430,5 +430,9 @@ export class IfcService {
         done = true;
       }
     });
+  }
+
+  showPlaneHelper(planeIdx: number, show: boolean){
+    this.planeHelpers[planeIdx].visible = !show;
   }
 }

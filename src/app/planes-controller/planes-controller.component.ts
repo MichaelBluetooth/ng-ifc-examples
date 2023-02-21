@@ -22,7 +22,8 @@ export class PlanesControllerComponent implements OnInit {
     this.planes.push({
       name: `Plane ${this.planes.length + 1}`,
       constant: null,
-      invert: false
+      invert: false,
+      showHelper: true
     });
     this.selectedPlane = this.planes[this.planes.length - 1];
     
@@ -40,6 +41,11 @@ export class PlanesControllerComponent implements OnInit {
   planeInvertChange(){
     const idx = this.planes.findIndex(p => p.name === this.selectedPlane.name);
     this.ifc.flipPlane(idx, this.selectedPlane.invert);
+  }
+
+  showHelperChange(){
+    const idx = this.planes.findIndex(p => p.name === this.selectedPlane.name);
+    this.ifc.showPlaneHelper(idx, !this.selectedPlane.showHelper);
   }
 
   // initThreeJSPlanes() {

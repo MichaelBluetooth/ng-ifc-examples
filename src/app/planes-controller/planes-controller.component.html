@@ -11,11 +11,12 @@
     </select>
     <div *ngIf="selectedPlane" class="control-div">
       offset:
-      <input type="range" min="-50" max="50" step=".01" [(ngModel)]="selectedPlane.constant" (ngModelChange)="planeConstantChanged()">
+      <input type="range" min="-50" max="50" step=.01 [(ngModel)]="selectedPlane.constant" (ngModelChange)="planeConstantChanged()">
       <input type="number" class="const-input"  [(ngModel)]="selectedPlane.constant" (ngModelChange)="planeConstantChanged()"/>
     </div>
     <div *ngIf="selectedPlane">
       Invert: <input type="checkbox" step="0.01" [(ngModel)]="selectedPlane.invert" (ngModelChange)="planeInvertChange()" />
+      Show Helper: <input type="checkbox" [(ngModel)]="selectedPlane.showHelper" (ngModelChange)="showHelperChange()" />
     </div>
   </div>
 </div>

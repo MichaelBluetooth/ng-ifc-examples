@@ -4,4 +4,5 @@ export interface IfcPlane {
     name: string;
     constant: number;
     invert: boolean;
+    showHelper: boolean;
 }
