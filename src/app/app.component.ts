@@ -30,10 +30,14 @@ export class AppComponent implements AfterViewInit {
 
     this.ifc.initScene(this.canvas);
     this.ifc.animate();
+    
     this.ifc.initIfc();
     setTimeout(() => {
-      this.ifc.loadAsset('assets/less_simple.ifc');
-    }, 500);
+      this.ifc.loadAsset('assets/big_house.ifc');
+      setTimeout(() => {
+        this.ifc.addObject();
+      }, 250);
+    }, 250);
   }
 
   loadIfcFile(evt: any): void {

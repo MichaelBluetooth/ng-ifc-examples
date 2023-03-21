@@ -5,6 +5,8 @@ import * as THREE from 'three';
 import {
   AmbientLight,
   AxesHelper,
+  Box3,
+  BoxGeometry,
   Camera,
   DirectionalLight,
   EdgesGeometry,
@@ -13,15 +15,25 @@ import {
   LineSegments,
   Material,
   Mesh,
+  MeshLambertMaterial,
   MeshPhongMaterial,
+  MeshStandardMaterial,
   OrthographicCamera,
   PerspectiveCamera,
+  Plane,
+  PlaneGeometry,
+  PlaneHelper,
+  Quaternion,
   Scene,
+  Sphere,
+  SphereGeometry,
   Vector3,
   WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { IFCLoader } from 'web-ifc-three';
+import { buildPlaneHelper } from './hz-plane-helper';
+import { applyStencil, createPlaneStencilGroup } from './stencil';
 import { getWireFrameElementTypes } from './wireframe-elements';
 
 let LINES_MATERIAL = new MeshPhongMaterial({
@@ -30,10 +42,10 @@ let LINES_MATERIAL = new MeshPhongMaterial({
   polygonOffsetFactor: 1,
   polygonOffsetUnits: 1,
   opacity: 0,
-  transparent: true
+  transparent: true,
 });
 
-let LINES_MATERIAL2 = new LineBasicMaterial({ color: 'black' })
+let LINES_MATERIAL2 = new LineBasicMaterial({ color: 'gray' });
 
 @Injectable({
   providedIn: 'root',
@@ -55,7 +67,7 @@ export class IfcService {
   private dist = new BehaviorSubject<number>(null);
   dist$ = this.dist.asObservable();
 
-  constructor(private http: HttpClient){}
+  constructor(private http: HttpClient) {}
 
   initScene(container: ElementRef) {
     this.scene = new Scene();
@@ -73,7 +85,8 @@ export class IfcService {
     //   1000
     // );
 
-    this.camera = new PerspectiveCamera(75, 1);
+    const b = container.nativeElement.getBoundingClientRect();
+    this.camera = new PerspectiveCamera(75, b.width / b.height);
     this.camera.position.z = 15;
     this.camera.position.y = 13;
     this.camera.position.x = 8;
@@ -99,6 +112,7 @@ export class IfcService {
       antialias: true,
       preserveDrawingBuffer: true,
     });
+    this.renderer.shadowMap.enabled = true;
     this.renderer.localClippingEnabled = true;
 
     const rect = container.nativeElement.getBoundingClientRect();
@@ -111,7 +125,6 @@ export class IfcService {
       requestAnimationFrame(this.animateFn);
     };
 
-    
     // const geometry = new THREE.BoxGeometry(1, 1, 1);
     // const materials = [
     //   new THREE.MeshPhongMaterial({ color: 'blue' }),
@@ -137,7 +150,7 @@ export class IfcService {
     //   cube.rotation.copy(this.camera.rotation);
 
     //   this.dist.next(this.camera.position.distanceTo(cube.position));
-      
+
     //   // this.camera.getWorldDirection(newAxesPosition);
     //   // newAxesPosition.multiplyScalar(.5);
     //   // newAxesPosition.add(this.camera.position);
@@ -158,8 +171,8 @@ export class IfcService {
     this.ifcLoader.ifcManager.setWasmPath('assets/');
   }
 
-  loadAsset(url: string){
-    this.http.get(url, {responseType: 'blob'}).subscribe(blob => {
+  loadAsset(url: string) {
+    this.http.get(url, { responseType: 'blob' }).subscribe((blob) => {
       const ifcUrl = window.URL.createObjectURL(blob);
       this.loadIfcFile(ifcUrl);
     });
@@ -188,6 +201,127 @@ export class IfcService {
     });
   }
 
+  addObject() {
+    // const geometry = new THREE.TorusKnotGeometry( 0.4, 0.15, 220, 60 );
+    // const geometry = new BoxGeometry(3, 3, 3)
+    // const ss = this.ifcLoader.ifcManager.subsets.getSubset(0, null, 'wireframe_elements');
+    // const geometry = ss.geometry;
+
+    const geometry = this.models[0].geometry;
+    const object = new THREE.Group();
+    this.scene.add(object);
+
+    const planes = [
+      // new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),
+      new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),
+      new THREE.Plane( new THREE.Vector3( 0, 0, - 1 ), 0 )
+    ];
+
+    const planeHelpers = [];
+    const objCenter = this.getCenter(this.models[0]);
+    planes.forEach((p) => {
+      const helperObjs = buildPlaneHelper(this.scene, objCenter, 2, p, false);
+      planeHelpers.push(helperObjs);
+
+      // if(!this.models[0].clippingPlanes){
+      //   this.models[0].clippingPlanes = [];
+      // }
+      // // this.models[0].clippingPlanes.push(p);
+    });
+
+    // const planeHelpers = planes.map(
+    //   (p) => new PlaneHelper(p, 2, 0xffffff)
+    // );
+    planeHelpers.forEach((ph) => {
+      ph.helper.visible = true;
+      // this.scene.add(ph.centerBox);
+      // this.scene.add(ph.helper);
+    });
+
+    const planeObjects = [];
+    const planeGeom = new THREE.PlaneGeometry(50, 50);
+
+    const debugPlaneMat = new MeshStandardMaterial({
+      transparent: true,
+      opacity: 0.4,
+      color: 'red',
+    });
+    const debugPlaneMesh = new THREE.Mesh(planeGeom, debugPlaneMat);
+    // this.scene.add(debugPlaneMesh);
+    planes[0].coplanarPoint(debugPlaneMesh.position);
+    debugPlaneMesh.lookAt(
+      debugPlaneMesh.position.x - planes[0].normal.x,
+      debugPlaneMesh.position.y - planes[0].normal.y,
+      debugPlaneMesh.position.z - planes[0].normal.z
+    );
+
+    for (let i = 0; i < planes.length; i++) {
+      const poGroup = new THREE.Group();
+      const plane = planes[i];
+
+      const stencilGroup = createPlaneStencilGroup(geometry, plane, i + 1);
+
+      // plane is clipped by the other clipping planes
+      const planeMat = new MeshStandardMaterial({
+        color: 0xe91e63, //ruby, the color of the clipped stuff
+        // metalness: 0.1,
+        // roughness: 0.75,
+        clippingPlanes: planes.filter((p) => p !== plane),
+
+        stencilWrite: true,
+        stencilRef: 0,
+        stencilFunc: THREE.NotEqualStencilFunc,
+        stencilFail: THREE.ReplaceStencilOp,
+        stencilZFail: THREE.ReplaceStencilOp,
+        stencilZPass: THREE.ReplaceStencilOp,
+      });
+      const po = new THREE.Mesh(planeGeom, planeMat);
+      po.onAfterRender = function (renderer) {
+        renderer.clearStencil();
+      };
+      po.renderOrder = i + 1.1;
+
+      object.add(stencilGroup);
+      poGroup.add(po);
+      planeObjects.push(po);
+      this.scene.add(poGroup);
+    }
+
+    for (let i = 0; i < planeObjects.length; i++) {
+      const plane = planes[i];
+      const po = planeObjects[i];
+      plane.coplanarPoint(po.position);
+      po.lookAt(
+        po.position.x - plane.normal.x,
+        po.position.y - plane.normal.y,
+        po.position.z - plane.normal.z
+      );
+    }
+
+    // const stencilObjMaterial = new THREE.MeshStandardMaterial({
+    //   color: 0xffc107,
+    //   metalness: 0.1,
+    //   roughness: 0.75,
+    //   clippingPlanes: planes,
+    //   clipShadows: true,
+    //   shadowSide: THREE.DoubleSide,
+    // });
+    // const clippedColorFront = new THREE.Mesh( geometry, stencilObjMaterial );
+    // clippedColorFront.castShadow = true;
+    // clippedColorFront.renderOrder = 6;
+    // object.add( clippedColorFront );
+
+    // (ss.material as Material[]).forEach((m, i) => {
+    this.models[0].material.forEach((m, i) => {
+      m.clippingPlanes = planes;
+      m.clipShadows = true;
+      m.shadowSide = THREE.DoubleSide;
+    });
+    this.models[0].mesh.castShadow = true;
+    this.models[0].mesh.renderOrder = 6;
+    object.add(this.models[0].mesh);
+  }
+
   getIdsFromSubset(subset: any) {
     // const indices = Array.from(new Set(Array.from(subset.geometry.index.array)));
     // const indices = Uint32Array.from(new Set(Uint32Array.from(subset.geometry.index.array)));
@@ -203,10 +337,7 @@ export class IfcService {
     var mesh = new Mesh(geometry, LINES_MATERIAL);
 
     const edges = new EdgesGeometry(geometry);
-    const line = new LineSegments(
-      edges,
-      LINES_MATERIAL2
-    );
+    const line = new LineSegments(edges, LINES_MATERIAL2);
     mesh.add(line);
     return mesh;
   }
@@ -245,8 +376,8 @@ export class IfcService {
 
     let lines: any = null;
     if (wireframe) {
-      lines = this.createLines(subset.geometry);
-      subset.add(lines);
+      // lines = this.createLines(subset.geometry);
+      // subset.add(lines);
       // this.scene.add(lines);
     }
 
@@ -308,53 +439,50 @@ export class IfcService {
   }
 
   getCenter(subset: any): Vector3 {
-      let minX = Infinity;
-      let maxX = -Infinity;
-      let minY = Infinity;
-      let maxY = -Infinity;
-      let minZ = Infinity;
-      let maxZ = -Infinity;
-      for (let i in subset.geometry.index.array) {
-        const position = subset.geometry.index.array[i];
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (let i in subset.geometry.index.array) {
+      const position = subset.geometry.index.array[i];
 
-        const x =
-        subset.geometry.attributes['position'].getX(position);
-        const y =
-        subset.geometry.attributes['position'].getY(position);
-        const z =
-        subset.geometry.attributes['position'].getZ(position);
+      const x = subset.geometry.attributes['position'].getX(position);
+      const y = subset.geometry.attributes['position'].getY(position);
+      const z = subset.geometry.attributes['position'].getZ(position);
 
-        if (x > maxX) {
-          maxX = x;
-        }
-        if (x < minX) {
-          minX = x;
-        }
-
-        if (y > maxY) {
-          maxY = y;
-        }
-        if (y < minY) {
-          minY = y;
-        }
-
-        if (z > maxZ) {
-          maxZ = z;
-        }
-        if (z < minZ) {
-          minZ = z;
-        }
+      if (x > maxX) {
+        maxX = x;
+      }
+      if (x < minX) {
+        minX = x;
       }
 
-      let middle = new THREE.Vector3();
-      let geometry = subset.geometry;
-      geometry.computeBoundingBox();
-      middle.x = (maxX + minX) / 2;
-      middle.y = (maxY + minY) / 2;
-      middle.z = (maxZ + minZ) / 2;
-      subset.localToWorld(middle);
+      if (y > maxY) {
+        maxY = y;
+      }
+      if (y < minY) {
+        minY = y;
+      }
 
-      return middle;
+      if (z > maxZ) {
+        maxZ = z;
+      }
+      if (z < minZ) {
+        minZ = z;
+      }
+    }
+
+    let middle = new Vector3();
+    let geometry = subset.geometry;
+    geometry.computeBoundingBox();
+    middle.x = (maxX + minX) / 2;
+    middle.y = (maxY + minY) / 2;
+    middle.z = (maxZ + minZ) / 2;
+    subset.localToWorld(middle);
+
+    return middle;
   }
 
   centerOnSubset(subsetName: string, material?: Material) {
@@ -365,63 +493,222 @@ export class IfcService {
     );
 
     if (selectedElementsSubset) {
-      let middle = this.getCenter(selectedElementsSubset);      
+      let middle = this.getCenter(selectedElementsSubset);
       this.controls.target.set(middle.x, middle.y, middle.z);
       this.camera.lookAt(middle.x, middle.y, middle.z);
     }
   }
 
-  getMaxDimension(){
+  getMaxDimension() {
     var cube_bbox = new THREE.Box3();
-    cube_bbox.setFromObject( this.models[0] );
+    cube_bbox.setFromObject(this.models[0]);
     const cube_height = cube_bbox.max.y - cube_bbox.min.y;
     return cube_height;
   }
 
+  getMinAndMaxDimension() {
+    const center: Vector3 = this.getCenter(this.models[0]);
+
+    const boundingBox = new Box3();
+    boundingBox.setFromObject(this.models[0]);
+    const boundingSphere = new Sphere();
+    boundingSphere.set(center, 300);
+    boundingBox.getBoundingSphere(boundingSphere);
+
+    return {
+      max: center.x + boundingSphere.radius,
+      min: center.x - boundingSphere.radius,
+    };
+  }
+
+  centerObj: any = null;
   planeHelpers = [];
   addPlane(invert: boolean) {
     const center = this.getCenter(this.models[0]);
     const size = this.getMaxDimension();
 
+    const boundingBox = new Box3();
+    boundingBox.setFromObject(this.models[0]);
+    const boundingSphere = new Sphere();
+    boundingBox.getBoundingSphere(boundingSphere);
+    let m = new THREE.MeshStandardMaterial({
+      color: 'blue',
+      opacity: 0.3,
+      transparent: true,
+    });
+    var sG = new SphereGeometry(boundingSphere.radius, 32, 32);
+    let sMesh = new Mesh(sG, m);
+
+    const positionAttribute = sMesh.geometry.getAttribute('position');
+    const vertex = new THREE.Vector3();
+    for (
+      let vertexIndex = 0;
+      vertexIndex < positionAttribute.count;
+      vertexIndex++
+    ) {
+      vertex.fromBufferAttribute(positionAttribute, vertexIndex);
+      // do something with vertex
+
+      const g = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+      const m = new THREE.MeshBasicMaterial({ color: 'black' });
+      const c = new THREE.Mesh(g, m);
+      this.scene.add(c);
+      c.position.copy(vertex);
+      break;
+    }
+
+    // sMesh.position.copy(center);
+    this.scene.add(sMesh);
+
+    const dim = this.getMinAndMaxDimension();
+    const geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const material = new THREE.MeshBasicMaterial({ color: 'black' });
+    const cube = new THREE.Mesh(geometry, material);
+    cube.position.setX(dim.max);
+
+    const geometry2 = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const material2 = new THREE.MeshBasicMaterial({ color: 'black' });
+    const cube2 = new THREE.Mesh(geometry2, material2);
+    cube2.position.setX(dim.min);
+
+    this.scene.add(cube);
+    this.scene.add(cube2);
+
+    if (null === this.centerObj) {
+      const geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+      const material = new THREE.MeshBasicMaterial({ color: 'black' });
+      const cube = new THREE.Mesh(geometry, material);
+      this.scene.add(cube);
+      cube.position.copy(center);
+      // const geometry2 = new THREE.BoxGeometry( 1, 1, 1 );
+      // const material2 = new THREE.MeshBasicMaterial( {color: 'red'} );
+      // const cube2 = new THREE.Mesh( geometry2, material2 );
+      // this.scene.add( cube2 );
+      // cube2.position.set(0,0,0);
+    }
+
+    // const camPostion = new Vector3()
+    // camPostion.copy(this.camera.position);
+    // camPostion.applyQuaternion(this.camera.quaternion);
+    // camPostion.angleTo(center);
+    const camAngle = new Vector3();
+    this.camera.getWorldDirection(camAngle);
+
     //TODO: is this on the X, Y or Z plane?
     const posX = invert ? -1 : 1;
-    const localPlane = new THREE.Plane(new THREE.Vector3(posX, 0, 0), -center.x); //todo: why -center.x to get center x position?
-    const helper = new THREE.PlaneHelper( localPlane, size * 2, 0xFF0000 );  //todo: how to get size of model and center the plane on the model?
+    const planeNormal = new Vector3(posX, 0, 0);
+    const localPlane = new THREE.Plane(planeNormal, -center.x); //todo: why -center.x to get center x position?
+    const helper = new THREE.PlaneHelper(localPlane, size * 2, 0xff0000); //todo: how to get size of model and center the plane on the model?
     this.scene.add(helper);
     this.planeHelpers.push(helper);
+    // helper.position.copy(center);
+    // const localPlaneQ = new Quaternion();
+    // localPlaneQ.setFromAxisAngle(planeNormal, Math.PI / 2);
+    // helper.applyQuaternion(localPlaneQ);
+
+    // const geometry = new THREE.PlaneGeometry( 20, 20 );
+    // const material = new THREE.MeshBasicMaterial( {color: 'red', side: THREE.DoubleSide, opacity: .2, transparent: true} );
+    // const plane = new THREE.Mesh( geometry, material );
+    // plane.position.copy(center);
+
+    // const localPlaneQ = new Quaternion();
+    // localPlaneQ.setFromAxisAngle(new Vector3(0, posX, 0), planeNormal.angleTo(center));
+    // geometry.applyQuaternion(localPlaneQ);
+
+    // // plane.rotation.y = Math.PI / 2; // x axis
+    // plane.rotation.x = Math.PI / 2; // y axis
+    // // plane.rotation.z = Math.PI / 2; // z axis
+    // this.scene.add( plane );
+    // this.planeHelpers.push(plane);
+    // window['helper'] = plane;
+
+    // helper.position.copy(center);
+
+    // helper.position.copy(center);
+    // helper.applyQuaternion()
+
+    // var dir = new THREE.Vector3(1,0,0);
+    // var localPlane = new THREE.Plane();
+    // localPlane.setFromNormalAndCoplanarPoint(dir, center).normalize();
+
+    // var planeGeometry = new THREE.PlaneGeometry(size * 2, size * 2);
+    // // Align the geometry to the plane
+    // var coplanarPoint = new Vector3();
+    // localPlane.coplanarPoint(coplanarPoint);
+    // var focalPoint = new THREE.Vector3().copy(coplanarPoint).add(localPlane.normal);
+    // planeGeometry.lookAt(focalPoint);
+    // planeGeometry.translate(coplanarPoint.x, coplanarPoint.y, coplanarPoint.z);
+
+    // var planeMaterial = new MeshLambertMaterial({color: 'red', side: THREE.DoubleSide, opacity: .2, transparent: true});
+    // var dispPlane = new Mesh(planeGeometry, planeMaterial);
+    // this.scene.add(dispPlane);
+    // this.planeHelpers.push(dispPlane);
+
+    // const geometry = new THREE.PlaneGeometry( size, size );
+    // const material = new THREE.MeshBasicMaterial( {color: 0xFF0000, side: THREE.DoubleSide, alphaTest: 0, transparent: true, opacity: .5} );
+    // const plane = new THREE.Mesh( geometry, material );
+    // var coplanarPoint = localPlane.coplanarPoint(center);
+    // var focalPoint = new THREE.Vector3().copy(coplanarPoint).add(localPlane.normal);
+    // geometry.lookAt(focalPoint);
+    // geometry.translate(coplanarPoint.x, coplanarPoint.y, coplanarPoint.z);
+    // this.scene.add( plane );
+
+    // localPlane.set(new Vector3(posX, posX, postX), 5);
+    // localPlane.normalize()
+    // helper.position.setZ(center.z);
 
     this.models[0].material.forEach((m: Material) => {
-      if(!m.clippingPlanes){
+      if (!m.clippingPlanes) {
         m.clippingPlanes = [localPlane];
       } else {
         m.clippingPlanes.push(localPlane);
       }
     });
-    
-    if(LINES_MATERIAL2.clippingPlanes) {
+
+    if (LINES_MATERIAL2.clippingPlanes) {
       LINES_MATERIAL2.clippingPlanes.push(localPlane);
     } else {
       LINES_MATERIAL2.clippingPlanes = [localPlane];
     }
 
     //todo: X, Y or Z?
-    return -center.x;
+    // return -center.x;
+    return localPlane.constant;
   }
 
-  adjustPlane(planeIdx: number, newConstant: number){
+  adjustPlane(planeIdx: number, newConstant: number) {
+    const coplanarPoint = new Vector3();
+    let localPlane = null;
     this.models[0].material.forEach((m: Material) => {
+      localPlane = m.clippingPlanes[planeIdx];
       m.clippingPlanes[planeIdx].constant = newConstant;
+      m.clippingPlanes[planeIdx].coplanarPoint(coplanarPoint);
     });
+
+    // const doomed = this.planeHelpers.splice(planeIdx, 1)[0];
+    // this.scene.remove(doomed);
+
+    // var planeGeometry = new THREE.PlaneGeometry(50, 50);
+    // // Align the geometry to the plane
+    // localPlane.coplanarPoint(coplanarPoint);
+    // var focalPoint = new THREE.Vector3().copy(coplanarPoint).add(localPlane.normal);
+    // planeGeometry.lookAt(focalPoint);
+    // planeGeometry.translate(coplanarPoint.x, coplanarPoint.y, coplanarPoint.z);
+
+    // var planeMaterial = new MeshLambertMaterial({color: 'red', side: THREE.DoubleSide, opacity: .2, transparent: true});
+    // var dispPlane = new Mesh(planeGeometry, planeMaterial);
+    // this.scene.add(dispPlane);
+    // this.planeHelpers.push(dispPlane);
   }
 
-  flipPlane(planeIdx: number, invert: boolean){
+  flipPlane(planeIdx: number, invert: boolean) {
     //todo: need to know if we're inverting X, Y or Z
     let done = false;
     this.models[0].material.forEach((m: Material) => {
-      if(!done){
+      if (!done) {
         const v: Vector3 = m.clippingPlanes[planeIdx].normal;
         let newX = v.x;
-        if(invert){
+        if (invert) {
           newX = v.x * -1;
         } else {
           newX = Math.abs(v.x);
@@ -432,7 +719,7 @@ export class IfcService {
     });
   }
 
-  showPlaneHelper(planeIdx: number, show: boolean){
+  showPlaneHelper(planeIdx: number, show: boolean) {
     this.planeHelpers[planeIdx].visible = !show;
   }
 }

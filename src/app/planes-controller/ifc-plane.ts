@@ -5,4 +5,5 @@ export interface IfcPlane {
     constant: number;
     invert: boolean;
     showHelper: boolean;
+    //x, y or z?
 }
